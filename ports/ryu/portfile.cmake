@@ -30,8 +30,32 @@ set(ENV{BAZEL_BIN_PATH} ${BAZEL})
 vcpkg_cmake_get_vars(cmake_vars_file)
 include(${cmake_vars_file})
 
-if (CMAKE_HOST_WIN32)
-    set(ENV{BAZEL_VC} $ENV{VCInstallDir})
+if (VCPKG_HOST_IS_WINDOWS)
+    if (VCPKG_DETECTED_MSVC)
+        set(ENV{BAZEL_VC} $ENV{VCInstallDir})
+    elseif (VCPKG_TARGET_IS_MINGW)
+        if (NOT VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
+            message(FATAL_ERROR "${VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR} is not supported!")
+        endif ()
+        set(BAZEL_COMPILER --compiler=mingw-gcc)
+        # BAZEL_SH can be propagated to the build environment using VCPKG_KEEP_ENV_VARS
+        if (NOT DEFINED ENV{BAZEL_SH})
+            message("Environment variable BAZEL_SH is not specified, trying to guess...")
+            get_filename_component(DIR ${VCPKG_DETECTED_CMAKE_C_COMPILER} DIRECTORY)
+            # Bazel expects Mingw-w64 to be installed in MSYS2 (pacman -S mingw-w64-x86_64-toolchain).
+            # From BAZEL_SH it finds MSYS2 root, adds "mingw64" to the root and uses this path as the location of Mingw-w64.
+            # In my setup, the toolchain were installed to c:\msys64\mingw64, to make it discoverable by vcpkg,
+            # I've added c:\msys64\mingw64\bin to the PATH.
+            # It is also possible to use non-MSYS2 binaries with Bazel if they are installed to a directory
+            # with the "mingw64" prefix, such as c:\mingw64 or c:\TDM-GCC-64\mingw64.
+            string(REGEX REPLACE "/mingw64/bin$" "" MSYS_DIR ${DIR})
+            string(REPLACE / \\ MSYS_DIR ${MSYS_DIR})
+            set(ENV{BAZEL_SH} ${MSYS_DIR}\\usr\\bin\\bash.exe)
+            message("BAZEL_SH $ENV{BAZEL_SH}")
+        endif ()
+    else ()
+        message(FATAL_ERROR "${TARGET_TRIPLET} is not supported!")
+    endif ()
     if (VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR STREQUAL x86)
         set(BAZEL_CPU --cpu=x64_x86_windows)
     elseif (VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR STREQUAL ARM)
@@ -39,10 +63,11 @@ if (CMAKE_HOST_WIN32)
     elseif (VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR STREQUAL ARM64)
         set(BAZEL_CPU --cpu=x64_arm64_windows)
     endif ()
-endif ()
-
-if (VCPKG_DETECTED_CMAKE_HOST_SYSTEM_NAME STREQUAL Darwin)
-    set(ENV{SDKROOT} ${VCPKG_DETECTED_CMAKE_OSX_SYSROOT})
+else ()
+    if (NOT VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
+        message(FATAL_ERROR "${VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR} is not supported!")
+    endif ()
+    set(ENV{CC} ${VCPKG_DETECTED_CMAKE_C_COMPILER})
 endif ()
 
 prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_RELEASE CONLY_OPTS_RELEASE --conlyopt)
@@ -50,13 +75,19 @@ prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_DEBUG CONLY_OPTS_DEBUG --conlyopt)
 prepare_bazel_opts(VCPKG_COMBINED_STATIC_LINKER_FLAGS_RELEASE LINK_OPTS_RELEASE --linkopt)
 prepare_bazel_opts(VCPKG_COMBINED_STATIC_LINKER_FLAGS_DEBUG LINK_OPTS_DEBUG --linkopt)
 
+if (VCPKG_HOST_IS_OSX)
+    set(ENV{SDKROOT} ${VCPKG_DETECTED_CMAKE_OSX_SYSROOT})
+    set(LINK_OPTS_RELEASE "${LINK_OPTS_RELEASE};--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
+    set(LINK_OPTS_DEBUG "${LINK_OPTS_DEBUG};--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
+endif ()
+
 vcpkg_execute_build_process(
-        COMMAND ${BAZEL} --batch build ${BAZEL_CPU} ${CONLY_OPTS_RELEASE} ${LINK_OPTS_RELEASE} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
+        COMMAND ${BAZEL} --batch build ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_RELEASE} ${LINK_OPTS_RELEASE} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
         WORKING_DIRECTORY ${SOURCE_PATH}
         LOGNAME build-${TARGET_TRIPLET}-rel
 )
 
-if (CMAKE_HOST_WIN32)
+if (VCPKG_HOST_IS_WINDOWS)
     file(INSTALL ${SOURCE_PATH}/bazel-bin/ryu/ryu.lib DESTINATION ${CURRENT_PACKAGES_DIR}/lib/)
     file(INSTALL ${SOURCE_PATH}/bazel-bin/ryu/ryu_printf.lib DESTINATION ${CURRENT_PACKAGES_DIR}/lib/)
 else ()
@@ -65,12 +96,12 @@ else ()
 endif ()
 
 vcpkg_execute_build_process(
-        COMMAND ${BAZEL} --batch build ${BAZEL_CPU} ${CONLY_OPTS_DEBUG} ${LINK_OPTS_DEBUG} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
+        COMMAND ${BAZEL} --batch build ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_DEBUG} ${LINK_OPTS_DEBUG} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
         WORKING_DIRECTORY ${SOURCE_PATH}
         LOGNAME build-${TARGET_TRIPLET}-dbg
 )
 
-if (CMAKE_HOST_WIN32)
+if (VCPKG_HOST_IS_WINDOWS)
     file(INSTALL ${SOURCE_PATH}/bazel-bin/ryu/ryu.lib DESTINATION ${CURRENT_PACKAGES_DIR}/debug/lib/)
     file(INSTALL ${SOURCE_PATH}/bazel-bin/ryu/ryu_printf.lib DESTINATION ${CURRENT_PACKAGES_DIR}/debug/lib/)
 else ()
