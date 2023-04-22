@@ -63,16 +63,12 @@ if (VCPKG_HOST_IS_WINDOWS)
     elseif (VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR STREQUAL ARM64)
         set(BAZEL_CPU --cpu=x64_arm64_windows)
     endif ()
-else()
+else ()
     if (NOT VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
         message(FATAL_ERROR "${VCPKG_DETECTED_CMAKE_SYSTEM_PROCESSOR} is not supported!")
     endif ()
     set(ENV{CC} ${VCPKG_DETECTED_CMAKE_C_COMPILER})
-    set(ENV{AR} ${VCPKG_DETECTED_CMAKE_AR})
-endif ()
-
-if (VCPKG_HOST_IS_OSX)
-    set(ENV{SDKROOT} ${VCPKG_DETECTED_CMAKE_OSX_SYSROOT})
+    set(BAZEL_ENV "--action_env=CC_CONFIGURE_DEBUG=1")
 endif ()
 
 prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_RELEASE CONLY_OPTS_RELEASE --conlyopt)
@@ -80,8 +76,14 @@ prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_DEBUG CONLY_OPTS_DEBUG --conlyopt)
 prepare_bazel_opts(VCPKG_COMBINED_STATIC_LINKER_FLAGS_RELEASE LINK_OPTS_RELEASE --linkopt)
 prepare_bazel_opts(VCPKG_COMBINED_STATIC_LINKER_FLAGS_DEBUG LINK_OPTS_DEBUG --linkopt)
 
+if (VCPKG_HOST_IS_OSX)
+    set(ENV{SDKROOT} ${VCPKG_DETECTED_CMAKE_OSX_SYSROOT})
+    set(LINK_OPTS_RELEASE "${LINK_OPTS_RELEASE};--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
+    set(LINK_OPTS_DEBUG "${LINK_OPTS_DEBUG};--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
+endif ()
+
 vcpkg_execute_build_process(
-        COMMAND ${BAZEL} --batch build ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_RELEASE} ${LINK_OPTS_RELEASE} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
+        COMMAND ${BAZEL} --batch build --nocheck_visibility --output_filter= -s --sandbox_debug ${BAZEL_ENV} ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_RELEASE} ${LINK_OPTS_RELEASE} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
         WORKING_DIRECTORY ${SOURCE_PATH}
         LOGNAME build-${TARGET_TRIPLET}-rel
 )
@@ -95,7 +97,7 @@ else ()
 endif ()
 
 vcpkg_execute_build_process(
-        COMMAND ${BAZEL} --batch build ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_DEBUG} ${LINK_OPTS_DEBUG} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
+        COMMAND ${BAZEL} --batch build --nocheck_visibility --output_filter= -s --sandbox_debug ${BAZEL_ENV} ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_DEBUG} ${LINK_OPTS_DEBUG} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
         WORKING_DIRECTORY ${SOURCE_PATH}
         LOGNAME build-${TARGET_TRIPLET}-dbg
 )
