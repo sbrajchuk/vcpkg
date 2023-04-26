@@ -70,9 +70,16 @@ prepare_bazel_opts("VCPKG_COMBINED_STATIC_LINKER_FLAGS_RELEASE" "LINK_OPTS_RELEA
 prepare_bazel_opts("VCPKG_COMBINED_STATIC_LINKER_FLAGS_DEBUG" "LINK_OPTS_DEBUG" "--linkopt")
 
 if (VCPKG_HOST_IS_OSX)
+    set("ENV{BAZEL_USE_CPP_ONLY_TOOLCHAIN}" "1")
     set("ENV{SDKROOT}" "${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}")
-    set("LINK_OPTS_RELEASE" "${LINK_OPTS_RELEASE};--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
-    set("LINK_OPTS_DEBUG" "${LINK_OPTS_DEBUG};--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
+    if (LINK_OPTS_RELEASE)
+        set("LINK_OPTS_RELEASE" "${LINK_OPTS_RELEASE};")
+    endif ()
+    set("LINK_OPTS_RELEASE" "${LINK_OPTS_RELEASE}--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
+    if (LINK_OPTS_DEBUG)
+        set("LINK_OPTS_DEBUG" "${LINK_OPTS_DEBUG};")
+    endif ()
+    set("LINK_OPTS_DEBUG" "${LINK_OPTS_DEBUG}--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
 endif ()
 
 vcpkg_execute_build_process(
