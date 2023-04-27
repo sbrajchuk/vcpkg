@@ -15,6 +15,14 @@ function(prepare_bazel_opts flags opts switch)
     endif ()
 endfunction()
 
+function(prepare_bazel_env_opts flags env_name)
+    string(STRIP ${${flags}} ${flags})
+    if (${flags})
+        string(REGEX REPLACE "[ ]+((\\\")?)-" ":\\1-" ${flags} ${${flags}})
+        set(ENV{${env_name}} "${${flags}}")
+    endif ()
+endfunction()
+
 function(get_android_sysroot opts sysroot)
     message("1")
     message("${sysroot}")
@@ -22,7 +30,7 @@ function(get_android_sysroot opts sysroot)
         message("2")
         message("${opt}")
         string(REGEX MATCH ^--[^=]+=--sysroot=.*$ found ${opt})
-        if(found)
+        if (found)
             message("3")
             string(REGEX REPLACE "^--[^=]+=--sysroot=(.*)$" \\1 ${sysroot} ${opt})
             message("${${sysroot}}")
@@ -87,41 +95,51 @@ else ()
         set(ENV{USER} "root")
         set(BAZEL_OUTPUT "--output_user_root=/tmp/bazel")
     endif ()
+    set(ENV{BAZEL_USE_CPP_ONLY_TOOLCHAIN} "1")
     set(ENV{CC} "${VCPKG_DETECTED_CMAKE_C_COMPILER}")
 endif ()
 
-set(VCPKG_COMBINED_C_FLAGS_RELEASE "--target=armv7-none-linux-androideabi21 -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -march=armv7-a -mthumb -Wformat -Werror=format-security  -fPIC   -O3 -DNDEBUG     \"--sysroot=/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64/sysroot\"")
+#set(VCPKG_COMBINED_C_FLAGS_RELEASE "--target=armv7-none-linux-androideabi21 -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -march=armv7-a -mthumb -Wformat -Werror=format-security  -fPIC   -O3 -DNDEBUG     \"--sysroot=/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64/sysroot\"")
 
 prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_RELEASE CONLY_OPTS_RELEASE "--conlyopt")
 prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_DEBUG CONLY_OPTS_DEBUG "--conlyopt")
 prepare_bazel_opts(VCPKG_COMBINED_STATIC_LINKER_FLAGS_RELEASE LINK_OPTS_RELEASE "--linkopt")
 prepare_bazel_opts(VCPKG_COMBINED_STATIC_LINKER_FLAGS_DEBUG LINK_OPTS_DEBUG "--linkopt")
 
-get_android_sysroot(CONLY_OPTS_RELEASE android_sysroot)
-set(ENV{SDKROOT} "${android_sysroot}")
-message(FATAL_ERROR "root $ENV{SDKROOT}")
+#
+#get_android_sysroot(CONLY_OPTS_RELEASE android_sysroot)
+#set(ENV{SDKROOT} "${android_sysroot}")
+#message(FATAL_ERROR "root $ENV{SDKROOT}")
 
-if ("${VCPKG_DETECTED_CMAKE_SYSTEM_NAME}" STREQUAL "Android")
-    get_android_sysroot(CONLY_OPTS_RELEASE android_sysroot)
-    set(ENV{COMPILER_PATH} "${VCPKG_DETECTED_CMAKE_C_COMPILER}")
-    set(BAZEL_ENV "--action_env=COMPILER_PATH=${VCPKG_DETECTED_CMAKE_C_COMPILER}")
+#if ("${VCPKG_DETECTED_CMAKE_SYSTEM_NAME}" STREQUAL "Android")
+#    get_android_sysroot(CONLY_OPTS_RELEASE android_sysroot)
+#    set(ENV{COMPILER_PATH} "${VCPKG_DETECTED_CMAKE_C_COMPILER}")
+#    set(BAZEL_ENV "--action_env=COMPILER_PATH=${VCPKG_DETECTED_CMAKE_C_COMPILER}")
+#endif ()
+
+#if (VCPKG_HOST_IS_OSX)
+#    set(ENV{BAZEL_USE_CPP_ONLY_TOOLCHAIN} "1")
+#    set(ENV{SDKROOT} "${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}")
+#    if (LINK_OPTS_RELEASE)
+#        set(LINK_OPTS_RELEASE "${LINK_OPTS_RELEASE};")
+#    endif ()
+#    set(LINK_OPTS_RELEASE "${LINK_OPTS_RELEASE}--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
+#    if (LINK_OPTS_DEBUG)
+#        set(LINK_OPTS_DEBUG "${LINK_OPTS_DEBUG};")
+#    endif ()
+#    set(LINK_OPTS_DEBUG "${LINK_OPTS_DEBUG}--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
+#endif ()
+
+if (DEFINED ENV{CC})
+    prepare_bazel_env_opts(VCPKG_COMBINED_C_FLAGS_RELEASE BAZEL_CXXOPTS)
+    prepare_bazel_env_opts(VCPKG_COMBINED_STATIC_LINKER_FLAGS_RELEASE BAZEL_LINKOPTS)
 endif ()
 
-if (VCPKG_HOST_IS_OSX)
-    set(ENV{BAZEL_USE_CPP_ONLY_TOOLCHAIN} "1")
-    set(ENV{SDKROOT} "${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}")
-    if (LINK_OPTS_RELEASE)
-        set(LINK_OPTS_RELEASE "${LINK_OPTS_RELEASE};")
-    endif ()
-    set(LINK_OPTS_RELEASE "${LINK_OPTS_RELEASE}--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
-    if (LINK_OPTS_DEBUG)
-        set(LINK_OPTS_DEBUG "${LINK_OPTS_DEBUG};")
-    endif ()
-    set(LINK_OPTS_DEBUG "${LINK_OPTS_DEBUG}--linkopt=-L${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}/usr/lib")
-endif ()
+message("BAZEL_CXXOPTS $ENV{BAZEL_CXXOPTS}")
+message("BAZEL_LINKOPTS $ENV{BAZEL_LINKOPTS}")
 
 vcpkg_execute_build_process(
-        COMMAND "${BAZEL}" --batch ${BAZEL_OUTPUT} build ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_RELEASE} ${LINK_OPTS_RELEASE} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
+        COMMAND "${BAZEL}" --batch ${BAZEL_OUTPUT} build -s --sandbox_debug ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_RELEASE} ${LINK_OPTS_RELEASE} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
         WORKING_DIRECTORY "${SOURCE_PATH}"
         LOGNAME "build-${TARGET_TRIPLET}-rel"
 )
@@ -134,8 +152,18 @@ else ()
     file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu_printf.a" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
 endif ()
 
+if (DEFINED ENV{CC})
+    prepare_bazel_env_opts(VCPKG_COMBINED_C_FLAGS_DEBUG BAZEL_CXXOPTS)
+    prepare_bazel_env_opts(VCPKG_COMBINED_STATIC_LINKER_FLAGS_DEBUG BAZEL_LINKOPTS)
+endif ()
+
+message("BAZEL_CXXOPTS $ENV{BAZEL_CXXOPTS}")
+message("BAZEL_LINKOPTS $ENV{BAZEL_LINKOPTS}")
+
+
+
 vcpkg_execute_build_process(
-        COMMAND "${BAZEL}" --batch ${BAZEL_OUTPUT} build ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_DEBUG} ${LINK_OPTS_DEBUG} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
+        COMMAND "${BAZEL}" --batch ${BAZEL_OUTPUT} build -s --sandbox_debug ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_DEBUG} ${LINK_OPTS_DEBUG} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
         WORKING_DIRECTORY "${SOURCE_PATH}"
         LOGNAME "build-${TARGET_TRIPLET}-dbg"
 )
