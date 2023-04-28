@@ -1,18 +1,16 @@
 function(prepare_bazel_opts flags opts switch)
-    string(STRIP ${${flags}} ${flags})
-    if (${flags})
-        string(REGEX REPLACE "[ ]+((\\\")?)-" ";\\1-" ${flags} ${${flags}})
-        foreach (opt IN LISTS ${flags})
-            string(REGEX REPLACE "^([^ ]+)[ ]+\"?([^\"]+)\"?$" \\1\\2 opt ${opt})
-            string(REGEX REPLACE "^\"([^\"]+)\"$" \\1 opt ${opt})
-            if (${opts})
-                set(${opts} ${${opts}};${switch}=${opt})
-            else ()
-                set(${opts} ${switch}=${opt})
-            endif ()
-        endforeach ()
-        set(${opts} ${${opts}} PARENT_SCOPE)
-    endif ()
+    separate_arguments(${flags} NATIVE_COMMAND ${${flags}})
+    foreach (opt IN LISTS ${flags})
+        #string(REGEX REPLACE "^([^ ]+)[ ]+\"?([^\"]+)\"?$" \\1\\2 opt ${opt})
+        #string(REGEX REPLACE "^\"([^\"]+)\"$" \\1 opt ${opt})
+        if (${opts})
+            set(${opts} ${${opts}};${switch}=${opt})
+        else ()
+            set(${opts} ${switch}=${opt})
+        endif ()
+    endforeach ()
+    message("${${opts}}")
+    set(${opts} ${${opts}} PARENT_SCOPE)
 endfunction()
 
 function(prepare_bazel_env_opts opts env_name)
@@ -59,8 +57,7 @@ if (VCPKG_HOST_IS_WINDOWS)
             # It is also possible to use non-MSYS2 binaries with Bazel if they are installed to a directory
             # whose name ends with "mingw64", such as c:\mingw64 or c:\TDM-GCC-64\mingw64.
             string(REGEX REPLACE /mingw64/bin$ "" MSYS2_ROOT "${DIR}")
-            string(REPLACE "/" "\\" MSYS2_ROOT "${MSYS2_ROOT}")
-            set(ENV{BAZEL_SH} "${MSYS2_ROOT}\\usr\\bin\\bash.exe")
+            set(ENV{BAZEL_SH} "${MSYS2_ROOT}/usr/bin/bash.exe")
             message("BAZEL_SH $ENV{BAZEL_SH}")
         endif ()
     else ()
@@ -86,49 +83,56 @@ else ()
     set(ENV{CC} "${VCPKG_DETECTED_CMAKE_C_COMPILER}")
 endif ()
 
-prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_RELEASE CONLY_OPTS_RELEASE "--conlyopt")
-prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_DEBUG CONLY_OPTS_DEBUG "--conlyopt")
-prepare_bazel_opts(VCPKG_COMBINED_SHARED_LINKER_FLAGS_RELEASE LINK_OPTS_RELEASE "--linkopt")
-prepare_bazel_opts(VCPKG_COMBINED_SHARED_LINKER_FLAGS_DEBUG LINK_OPTS_DEBUG "--linkopt")
+if ("${VCPKG_BUILD_TYPE}" STREQUAL "" OR "${VCPKG_BUILD_TYPE}" STREQUAL "release")
 
-if (DEFINED ENV{CC})
-    prepare_bazel_env_opts(CONLY_OPTS_RELEASE BAZEL_CXXOPTS)
-    prepare_bazel_env_opts(LINK_OPTS_RELEASE BAZEL_LINKOPTS)
+    prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_RELEASE CONLY_OPTS_RELEASE "--conlyopt")
+    prepare_bazel_opts(VCPKG_COMBINED_SHARED_LINKER_FLAGS_RELEASE LINK_OPTS_RELEASE "--linkopt")
+    if (DEFINED ENV{CC})
+        prepare_bazel_env_opts(CONLY_OPTS_RELEASE BAZEL_CXXOPTS)
+        prepare_bazel_env_opts(LINK_OPTS_RELEASE BAZEL_LINKOPTS)
+    endif ()
+
+    vcpkg_execute_build_process(
+            COMMAND "${BAZEL}" --batch ${BAZEL_OUTPUT} build -s --sandbox_debug ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_RELEASE} ${LINK_OPTS_RELEASE} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
+            WORKING_DIRECTORY "${SOURCE_PATH}"
+            LOGNAME "build-${TARGET_TRIPLET}-rel"
+    )
+
+    if ("${CMAKE_STATIC_LIBRARY_SUFFIX}" STREQUAL ".lib")
+        file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/ryu.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
+        file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/ryu_printf.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
+    else ()
+        file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu.a" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
+        file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu_printf.a" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
+    endif ()
+
 endif ()
 
-vcpkg_execute_build_process(
-        COMMAND "${BAZEL}" --batch ${BAZEL_OUTPUT} build ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_RELEASE} ${LINK_OPTS_RELEASE} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
-        WORKING_DIRECTORY "${SOURCE_PATH}"
-        LOGNAME "build-${TARGET_TRIPLET}-rel"
-)
+if ("${VCPKG_BUILD_TYPE}" STREQUAL "" OR "${VCPKG_BUILD_TYPE}" STREQUAL "debug")
 
-if ("${CMAKE_STATIC_LIBRARY_SUFFIX}" STREQUAL ".lib")
-    file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/ryu.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
-    file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/ryu_printf.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
-else ()
-    file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu.a" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
-    file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu_printf.a" DESTINATION "${CURRENT_PACKAGES_DIR}/lib/")
+    prepare_bazel_opts(VCPKG_COMBINED_C_FLAGS_DEBUG CONLY_OPTS_DEBUG "--conlyopt")
+    prepare_bazel_opts(VCPKG_COMBINED_SHARED_LINKER_FLAGS_DEBUG LINK_OPTS_DEBUG "--linkopt")
+
+    if (DEFINED ENV{CC})
+        prepare_bazel_env_opts(CONLY_OPTS_DEBUG BAZEL_CXXOPTS)
+        prepare_bazel_env_opts(LINK_OPTS_DEBUG BAZEL_LINKOPTS)
+    endif ()
+
+    vcpkg_execute_build_process(
+            COMMAND "${BAZEL}" --batch ${BAZEL_OUTPUT} build -s --sandbox_debug ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_DEBUG} ${LINK_OPTS_DEBUG} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
+            WORKING_DIRECTORY "${SOURCE_PATH}"
+            LOGNAME "build-${TARGET_TRIPLET}-dbg"
+    )
+
+    if ("${CMAKE_STATIC_LIBRARY_SUFFIX}" STREQUAL ".lib")
+        file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/ryu.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/lib/")
+        file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/ryu_printf.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/lib/")
+    else ()
+        file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu.a" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/lib/")
+        file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu_printf.a" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/lib/")
+    endif ()
+
 endif ()
-
-if (DEFINED ENV{CC})
-    prepare_bazel_env_opts(CONLY_OPTS_DEBUG BAZEL_CXXOPTS)
-    prepare_bazel_env_opts(LINK_OPTS_DEBUG BAZEL_LINKOPTS)
-endif ()
-
-vcpkg_execute_build_process(
-        COMMAND "${BAZEL}" --batch ${BAZEL_OUTPUT} build ${BAZEL_COMPILER} ${BAZEL_CPU} ${CONLY_OPTS_DEBUG} ${LINK_OPTS_DEBUG} --verbose_failures --strategy=CppCompile=standalone //ryu //ryu:ryu_printf
-        WORKING_DIRECTORY "${SOURCE_PATH}"
-        LOGNAME "build-${TARGET_TRIPLET}-dbg"
-)
-
-if ("${CMAKE_STATIC_LIBRARY_SUFFIX}" STREQUAL ".lib")
-    file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/ryu.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/lib/")
-    file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/ryu_printf.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/lib/")
-else ()
-    file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu.a" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/lib/")
-    file(INSTALL "${SOURCE_PATH}/bazel-bin/ryu/libryu_printf.a" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/lib/")
-endif ()
-
 file(INSTALL "${SOURCE_PATH}/LICENSE-Boost" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
 file(INSTALL "${SOURCE_PATH}/ryu/ryu.h" DESTINATION "${CURRENT_PACKAGES_DIR}/include/ryu/")
 file(INSTALL "${SOURCE_PATH}/ryu/ryu2.h" DESTINATION "${CURRENT_PACKAGES_DIR}/include/ryu/")
